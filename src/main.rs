@@ -1,23 +1,17 @@
 mod dec_01;
-mod helper;
+mod dec_02;
 
 macro_rules! run_puzzles {
     ($mod_name:ident) => {{
-        println!(
-            "{}, Puzzle #1 -- RESULT: {}",
-            stringify!($mod_name),
-            $mod_name::puzzle1()?
-        );
-        println!(
-            "{}, Puzzle #2 -- RESULT: {}",
-            stringify!($mod_name),
-            $mod_name::puzzle2()?
-        );
+        println!("{}", stringify!($mod_name));
+        println!("\tPuzzle #1 -- RESULT: {}", $mod_name::puzzle1()?);
+        println!("\tPuzzle #2 -- RESULT: {}", $mod_name::puzzle2()?);
     }};
 }
 
-fn main() -> Result<(), std::io::Error> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_puzzles!(dec_01);
+    run_puzzles!(dec_02);
 
     Ok(())
 }
