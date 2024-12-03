@@ -43,7 +43,7 @@ fn is_safe(report: Vec<u8>) -> bool {
         Decreasing,
     }
     let mut state = State::Undefined;
-    'inner: for i in 1..report.len() {
+    for i in 1..report.len() {
         let [x, y] = &report[i - 1..=i] else { panic!() };
         match state {
             State::Undefined => {
