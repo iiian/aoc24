@@ -4,6 +4,7 @@ mod dec_03;
 mod dec_04;
 mod dec_05;
 mod dec_06;
+mod dec_07;
 
 macro_rules! run_puzzles {
     ($mod_name:ident) => {{
@@ -19,7 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // run_puzzles!(dec_03);
     // run_puzzles!(dec_04);
     // run_puzzles!(dec_05);
-    run_puzzles!(dec_06);
+    // run_puzzles!(dec_06);
+    run_puzzles!(dec_07);
 
     Ok(())
 }
