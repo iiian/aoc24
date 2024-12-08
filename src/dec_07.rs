@@ -17,7 +17,9 @@ struct Perms<O>
 where
     O: OpsSet,
 {
+    /// The nums that must be searched for a companion
     nums: Vec<u64>,
+    ///
     ops_perm: Option<Vec<usize>>,
     _marker: std::marker::PhantomData<O>,
 }
