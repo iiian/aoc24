@@ -1,16 +1,30 @@
-pub fn puzzle1() -> Result<u32, Box<dyn std::error::Error>> {
-    handle_puzzle1(std::fs::read_to_string("./inputs/decxx.txt")?.as_str())
+type PuzzleOutput = usize;
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let input = std::fs::read_to_string("./inputs/decxx.txt")?;
+    let now = std::time::Instant::now();
+
+    let result = handle_puzzle1(input.as_str())?;
+    println!(
+        "Puzzle 1: ans={}, ({} us)",
+        result,
+        now.elapsed().as_micros()
+    );
+
+    let result = handle_puzzle2(input.as_str())?;
+    println!(
+        "Puzzle 2: ans={}, ({} us)",
+        result,
+        now.elapsed().as_micros()
+    );
+
+    Ok(())
 }
 
-pub fn puzzle2() -> Result<u32, Box<dyn std::error::Error>> {
-    handle_puzzle2(std::fs::read_to_string("./inputs/decxx.txt")?.as_str())
-}
-
-fn handle_puzzle1(input: &str) -> Result<u32, Box<dyn std::error::Error>> {
+fn handle_puzzle1(input: &str) -> Result<PuzzleOutput, Box<dyn std::error::Error>> {
     todo!()
 }
 
-fn handle_puzzle2(input: &str) -> Result<u32, Box<dyn std::error::Error>> {
+fn handle_puzzle2(input: &str) -> Result<PuzzleOutput, Box<dyn std::error::Error>> {
     todo!()
 }
 
