@@ -2,15 +2,20 @@
 name = "aoc24"
 version = "0.1.0"
 edition = "2021"
-default-run = "dec12"
+default-run = "dec_13"
+
+[[bin]]
+path = "src/dec_13.rs"
+name = "dec_13"
 
 [[bin]]
 path = "src/dec_12.rs"
-name = "dec12"
+name = "dec_12"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 itertools = "0.13.0"
+nalgebra = "0.33.2"
 rayon = "1.10.0"
 regex = "1.11.1"
