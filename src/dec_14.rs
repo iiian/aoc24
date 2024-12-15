@@ -14,12 +14,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         now.elapsed().as_micros()
     );
 
-    let result = handle_puzzle2(input.as_str());
-    println!(
-        "Puzzle 2: ans={}, ({} us)",
-        result,
-        now.elapsed().as_micros()
-    );
+    // let result = handle_puzzle2(input.as_str());
+    // println!(
+    //     "Puzzle 2: ans={}, ({} us)",
+    //     result,
+    //     now.elapsed().as_micros()
+    // );
 
     Ok(())
 }

@@ -286,6 +286,10 @@ mod part2 {
         Ok(total_cost)
     }
 
+    pub(crate) fn get_num_sides2(region: &HashMap<(usize, usize), bool>) -> usize {
+        0
+    }
+
     // pick random point, make way to edge
     // circumnavigate the object until one reaches the origin again.
     pub(crate) fn get_num_sides(region: &HashMap<(usize, usize), bool>) -> usize {
@@ -442,31 +446,33 @@ MMMISSJEEE"#;
 
     #[test]
     fn test_get_num_sides() {
-        let mut input = HashMap::new();
-        input.insert((10, 10), true);
-        assert_eq!(get_num_sides(&input), 4);
+        for get_num_sides in &[get_num_sides, get_num_sides2] {
+            let mut input = HashMap::new();
+            input.insert((10, 10), true);
+            assert_eq!(get_num_sides(&input), 4);
 
-        input.insert((11, 10), true);
-        input.insert((10, 11), true);
-        assert_eq!(get_num_sides(&input), 6);
-        input.insert((11, 11), true);
-        assert_eq!(get_num_sides(&input), 4);
+            input.insert((11, 10), true);
+            input.insert((10, 11), true);
+            assert_eq!(get_num_sides(&input), 6);
+            input.insert((11, 11), true);
+            assert_eq!(get_num_sides(&input), 4);
 
-        input.insert((11, 12), true);
-        input.insert((12, 11), true);
-        assert_eq!(get_num_sides(&input), 10);
+            input.insert((11, 12), true);
+            input.insert((12, 11), true);
+            assert_eq!(get_num_sides(&input), 10);
 
-        input.insert((11, 9), true);
-        assert_eq!(get_num_sides(&input), 12);
-        input.insert((11, 8), true);
-        assert_eq!(get_num_sides(&input), 12);
-        input.insert((11, 7), true);
-        assert_eq!(get_num_sides(&input), 12);
+            input.insert((11, 9), true);
+            assert_eq!(get_num_sides(&input), 12);
+            input.insert((11, 8), true);
+            assert_eq!(get_num_sides(&input), 12);
+            input.insert((11, 7), true);
+            assert_eq!(get_num_sides(&input), 12);
 
-        input.insert((12, 10), true);
-        input.insert((12, 9), true);
-        input.insert((12, 8), true);
-        input.insert((12, 7), true);
-        assert_eq!(get_num_sides(&input), 10);
+            input.insert((12, 10), true);
+            input.insert((12, 9), true);
+            input.insert((12, 8), true);
+            input.insert((12, 7), true);
+            assert_eq!(get_num_sides(&input), 10);
+        }
     }
 }
