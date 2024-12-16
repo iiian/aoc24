@@ -1,18 +1,18 @@
-type Units = todo!();
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::fs::read_to_string("./inputs/decxx.txt")?;
-    let now = std::time::Instant::now();
 
+    let now = std::time::Instant::now();
     let result = handle_puzzle1(input.as_str());
     println!(
-        "Puzzle 1: ans={}, ({} us)",
+        "Puzzle 1: ans {:?}, ({} us)",
         result,
         now.elapsed().as_micros()
     );
 
+    let now = std::time::Instant::now();
     let result = handle_puzzle2(input.as_str());
     println!(
-        "Puzzle 2: ans={}, ({} us)",
+        "Puzzle 2: ans {:?}, ({} us)",
         result,
         now.elapsed().as_micros()
     );
@@ -24,7 +24,7 @@ type ParseOutput = todo!();
 fn parse(input: &str) -> ParseOutput {
     todo!()
 }
-
+type Units = todo!();
 fn handle_puzzle1(input: &str) -> Units {
     todo!()
 }
