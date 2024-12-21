@@ -2,7 +2,11 @@
 name = "aoc24"
 version = "0.1.0"
 edition = "2021"
-default-run = "dec_18"
+default-run = "dec_19"
+
+[[bin]]
+path = "src/dec_19.rs"
+name = "dec_19"
 
 [[bin]]
 path = "src/dec_18.rs"
