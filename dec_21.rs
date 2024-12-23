@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{collections::HashMap, slice::Iter};
 
 use itertools::iproduct;
 
@@ -24,154 +24,258 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-type ParseOutput = Vec<String>;
-fn parse(input: &str) -> ParseOutput {
-    input
-        .lines()
-        .map(|line| line.chars().collect())
-        .collect::<ParseOutput>()
+fn parse(input: &str) -> Vec<String> {
+    input.lines().map(|line| line.chars().collect()).collect()
 }
 
-type Units = usize;
-fn handle_puzzle1(input: &str) -> Units {
+fn handle_puzzle1(input: &str) -> usize {
     let inputs = parse(input);
-    let num = ClickMatrix::from(vec![
-        vec!['7', '8', '9'],
-        vec!['4', '5', '6'],
-        vec!['1', '2', '3'],
-        vec![' ', '0', 'A'],
-    ]);
-    let dpad = ClickMatrix::from(vec![vec![' ', '^', 'A'], vec!['<', 'v', '>']]);
+    let input_codes = inputs.clone().into_iter().map(|input| {
+        input
+            .chars()
+            .filter(|c| c.is_numeric())
+            .collect::<String>()
+            .parse::<usize>()
+            .unwrap()
+    });
+    let num = ClickMatrixv2::numpad();
+    let dpad = ClickMatrixv2::dpad();
 
-    // ♫♪♬ It's       beginning-to-feel         a-lot          like         ... pY      toRCh
-    let layer_door_r1 = expand_layer(&num, inputs.clone());
-    let layer_r1_r2 = expand_layer(&dpad, layer_door_r1);
-    let layer_r2_r3 = expand_layer(&dpad, layer_r1_r2);
-    let layer_r3_me = expand_layer(&dpad, layer_r2_r3);
+    let chain = [&num, &dpad, &dpad];
+    let chain = ClickChain::from(&chain);
 
-    layer_r3_me
+    inputs
+        .iter()
+        .map(|input| chain.find_shortest(input.as_str()))
+        .clone()
         .into_iter()
-        .zip(inputs.into_iter())
-        .map(|(path, input)| {
-            path.len()
-                * input
-                    .chars()
-                    .filter(|c| c.is_numeric())
-                    .collect::<String>()
-                    .parse::<usize>()
-                    .unwrap()
-        })
+        .zip(input_codes)
+        .map(|(path, code)| path.len() * code)
         .sum()
 }
 
-fn expand_layer(matr: &ClickMatrix, layer_doorpad_robot_one: Vec<String>) -> Vec<String> {
-    let mut out: Vec<String> = vec![];
-    for input in layer_doorpad_robot_one {
-        let input = input.chars();
-        let mut step = String::new();
-        let mut from = &'A';
-        for to in input {
-            let Some(frag) = matr.get(from, &to) else {
-                panic!()
-            };
+fn handle_puzzle2(input: &str) -> usize {
+    let inputs = parse(input);
+    let input_codes = inputs
+        .clone()
+        .into_iter()
+        .map(|input| {
+            input
+                .chars()
+                .filter(|c| c.is_numeric())
+                .collect::<String>()
+                .parse::<usize>()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let num = ClickMatrixv2::numpad();
+    let dpad = ClickMatrixv2::dpad();
 
-            step += frag;
-        }
-
-        out.push(step);
+    let mut chain = Vec::from([&num]);
+    for i in 0..11 {
+        chain.push(&dpad);
     }
-    out
+    for i in 10..11 {
+        let chain = ClickChain::from(&chain);
+
+        println!("dpad count = {i}");
+        for (i, input) in inputs.iter().enumerate() {
+            let shortest = chain.find_shortest(input.as_str()).len();
+            println!("\t{input} len = {shortest}");
+            println!("\tcomplexity = {}", input_codes[i] * shortest);
+        }
+        // inputs
+        //     .iter()
+        //     .map(|input| chain.find_shortest(input.as_str()))
+        //     .clone()
+        //     .into_iter()
+        //     .zip(input_codes)
+        //     .map(|(path, code)| path.len() * code)
+        //     .sum()
+    }
+
+    0
 }
 
-/// A look up table for shortest "click" paths (or one thereof pseudo-randomly selected) from button to button
-/// in AOC Day 21 DPAD notation, that is [<^>vA]+
-struct ClickMatrix {
-    /// the square matrix representing (row) => (column) moving from the ith button to the jth button
-    layout: Vec<Vec<String>>,
-    /// key into the layout by button id
+/// Allows one to query "from"/"to" for any two keys on any keypad,
+/// and in return one receives the comprehensive set of possible routes
+struct ClickMatrixv2 {
+    matrix: Vec<Vec<Vec<String>>>,
     key: HashMap<char, usize>,
 }
+impl ClickMatrixv2 {
+    /// Generate an (h*w-1)**2 matrix for a given keypad, `base`
+    fn from(base: Vec<Vec<char>>, null_sq: (usize, usize)) -> Self {
+        let h = base.len();
+        let w = base[0].len();
+        let hw = h * w - 1;
 
-impl ClickMatrix {
-    fn from(keypad_layout: Vec<Vec<char>>) -> Self {
-        let h = keypad_layout.len();
-        let w = keypad_layout[0].len();
-        let dim = h * w - 1;
+        type Pt = (usize, usize);
+        fn generate(curs: Pt, dest: Pt, s: &mut String, l: &mut Vec<String>, null_sq: &Pt) {
+            if &curs == null_sq {
+                return;
+            }
+            if curs == dest {
+                s.push('A');
+                l.push(s.clone());
+                s.pop();
+                return;
+            }
+            if curs.0 < dest.0 {
+                s.push('v');
+                generate((curs.0 + 1, curs.1), dest, s, l, null_sq);
+                s.pop();
+            } else if curs.0 > dest.0 {
+                s.push('^');
+                generate((curs.0 - 1, curs.1), dest, s, l, null_sq);
+                s.pop();
+            }
 
-        let key = keypad_layout
-            .iter()
-            .flatten()
-            .filter(|k| **k != ' ')
-            .enumerate()
-            .map(|(i, c)| (*c, i))
-            .collect::<HashMap<_, _>>();
+            if curs.1 < dest.1 {
+                s.push('>');
+                generate((curs.0, curs.1 + 1), dest, s, l, null_sq);
+                s.pop();
+            } else if curs.1 > dest.1 {
+                s.push('<');
+                generate((curs.0, curs.1 - 1), dest, s, l, null_sq);
+                s.pop();
+            }
+        };
 
-        let mut result = vec![vec![Option::<String>::None; dim]; dim];
-        for (i, j) in iproduct!(0..h, 0..w).filter(|(i, j)| keypad_layout[*i][*j] != ' ') {
-            let k_src = *key.get(&keypad_layout[i][j]).unwrap();
-            let mut frontier =
-                VecDeque::<((usize, usize), String)>::from([((i, j), String::from(""))]);
-            let mut map = HashMap::<(usize, usize), String>::new();
-
-            while let Some((next @ (ni, nj), path)) = frontier.pop_front() {
-                if map.contains_key(&next) {
+        let mut matrix = vec![vec![Option::<Vec<String>>::None; hw]; hw];
+        let mut key = HashMap::<char, usize>::new();
+        let mut k = 0;
+        for row in &base {
+            for ch in row {
+                if *ch == ' ' {
                     continue;
                 }
-                if let Some(k_dest) = key.get(&keypad_layout[ni][nj]) {
-                    result[k_src][*k_dest] = Some(path.clone() + "A");
-                    map.insert(next, path.clone());
-                    if ni > 0 {
-                        frontier.push_back(((ni - 1, nj), path.clone() + "^"));
+                key.insert(*ch, k);
+                k += 1;
+            }
+        }
+
+        for pt_src @ (i1, j1) in iproduct!(0..h, 0..w) {
+            if pt_src == null_sq {
+                continue;
+            }
+            if let Some(k1) = key.get(&base[i1][j1]) {
+                for pt_dest @ (i2, j2) in iproduct!(0..h, 0..w) {
+                    if pt_dest == null_sq {
+                        continue;
                     }
-                    if nj > 0 {
-                        frontier.push_back(((ni, nj - 1), path.clone() + "<"));
-                    }
-                    if ni < h - 1 {
-                        frontier.push_back(((ni + 1, nj), path.clone() + "v"));
-                    }
-                    if nj < w - 1 {
-                        frontier.push_back(((ni, nj + 1), path.clone() + ">"));
+                    if let Some(k2) = key.get(&base[i2][j2]) {
+                        let mut list = vec![];
+                        generate(pt_src, pt_dest, &mut String::new(), &mut list, &null_sq);
+
+                        matrix[*k1][*k2] = Some(list);
                     }
                 }
             }
         }
 
-        let layout = result
+        let matrix = matrix
             .into_iter()
-            .map(|row| row.into_iter().filter_map(|k| k).collect())
+            .map(|row| row.into_iter().filter_map(|o| o).collect())
             .collect();
 
-        Self { key, layout }
+        Self { matrix, key }
     }
 
-    pub fn get(&self, from: &char, to: &char) -> Option<&String> {
-        if let Some(i) = self.key.get(from) {
-            if let Some(j) = self.key.get(to) {
-                return Some(&self.layout[*i][*j]);
+    /// default constructor for the `numpad` input entry mechanism
+    fn numpad() -> Self {
+        Self::from(
+            vec![
+                vec!['7', '8', '9'],
+                vec!['4', '5', '6'],
+                vec!['1', '2', '3'],
+                vec![' ', '0', 'A'],
+            ],
+            (3, 0),
+        )
+    }
+
+    /// default constructor for `dpad` input entry mechanism
+    fn dpad() -> Self {
+        Self::from(vec![vec![' ', '^', 'A'], vec!['<', 'v', '>']], (0, 0))
+    }
+
+    /// Look up the "ways" to get to `dest` from `src` for the given keypad
+    pub fn get(&self, src: char, dest: char) -> &[String] {
+        let ksrc = *self.key.get(&src).unwrap();
+        let kdest = *self.key.get(&dest).unwrap();
+
+        &self.matrix[ksrc][kdest]
+    }
+}
+
+/// Given a daisy-chain of keypads, computes the shortest path to achieving the primary input
+/// using the `find_shortest` method.
+struct ClickChain<'a> {
+    steps: &'a [&'a ClickMatrixv2],
+}
+
+impl<'a> ClickChain<'a> {
+    pub fn from(steps: &'a [&'a ClickMatrixv2]) -> Self {
+        Self { steps }
+    }
+
+    /// Finds a minimal length path that satisfies the keypad chain.
+    pub fn find_shortest(&self, input: &str) -> String {
+        let mut it = self.steps.iter();
+        self.find_shortest_inner(input, &mut it).unwrap()
+    }
+
+    fn find_shortest_inner(&self, input: &str, it: &mut Iter<&ClickMatrixv2>) -> Option<String> {
+        if let Some(keypad_matrix) = it.next() {
+            let mut from = 'A';
+            let mut best = String::new();
+            for to in input.chars() {
+                let paths = keypad_matrix.get(from, to);
+                let shortest = paths
+                    .iter()
+                    .map(|opt| {
+                        if let Some(shortest) =
+                            self.find_shortest_inner(opt.as_str(), &mut it.clone())
+                        {
+                            shortest
+                        } else {
+                            opt.clone()
+                        }
+                    })
+                    .min_by_key(|s| s.len())
+                    .unwrap();
+
+                best.extend(shortest.chars());
+                from = to;
             }
+
+            return Some(best);
         }
 
-        return None;
+        // If the iterator is dead, that means we're as deep as it gets.
+        None
     }
 }
 
-fn handle_puzzle2(input: &str) -> Units {
-    todo!()
-}
-
-#[test]
-fn test_clickmatrix() {
-    let cm = ClickMatrix::from(vec![
-        vec!['7', '8', '9'],
-        vec!['4', '5', '6'],
-        vec!['1', '2', '3'],
-        vec![' ', '0', 'A'],
-    ]);
-
-    println!("{:?}", cm.key);
-    for row in cm.layout {
-        println!("{:?}", row);
+fn align_lines(mut lines: Vec<String>) -> String {
+    for i in (0..lines.len() - 1).rev() {
+        let (unaligned, base) = (&lines[i], &lines[i + 1]);
+        let mut realigned = String::new();
+        let mut unaligned = unaligned.chars();
+        let mut base = base.chars();
+        while let Some(c) = base.next() {
+            let next = if c == 'A' {
+                unaligned.next().unwrap()
+            } else {
+                ' '
+            };
+            realigned.push(next);
+        }
+        lines[i] = realigned;
     }
+
+    lines.join("\n")
 }
 
 #[test]
