@@ -1,6 +1,6 @@
 use std::{collections::HashMap, slice::Iter};
 
-use itertools::iproduct;
+use itertools::{iproduct, Itertools};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::fs::read_to_string("./inputs/dec21.txt")?;
@@ -54,7 +54,29 @@ fn handle_puzzle1(input: &str) -> usize {
         .sum()
 }
 
+/// After trying to just brute force with the solution above for pt1, around a `ClickChain` composed of 13 steps,
+/// we're looking at ~10 sec to expand a single layer. Another 12 chains would result in another 12 orders of magnitude, which is about 31,000 years.
+/// I don't have that much time, so a craftier solution must be employed.
+///
+/// Rather than directly computing a 26-step string and then taking its length, there are two aspects of the problem that can be exploited to compute
+/// directly the *length* of the 26th input sequence in a tractable time.
+///
+/// The first aspect is the fact that, for any given transition -- that is numpad(3, 6) or dpad(<, A) on the same robot's input pad -- "the shortest length
+/// the parent must travel to produce this result in the child layer" does not vary as the child layer's sequence progresses; it is always a fixed length. This applies across all layers.
+///
+/// The second aspect is that, for all of these transitions across all layers, any transition is completely and totally linearly independent of its siblings in that layer,
+/// in terms of its contributions to the final length. This is because the parent robot controlling this robot's movements must always return to the 'A' button
+/// in order to finalize the click input. This means that whenever a click occurs in the child robot, the parent has recentered itself, and so there can be no "drift"
+/// in what it means to transition from A to B on the child robot's input pad.
+///
+/// Using these two facts, we abandon thinking of the problem in terms of "sequences of button presses". In its lieu, we can think of "weighted maps of button transitions".
+/// Consider some child robot's sequence; it might need to perform say (<, ^) seven times. We know that the shortest path for moving a robot from < to ^ is fixed, and furthermore
+/// we can precompute what its constituent transitions and weights would be in the parent controlling robot's layer.
+///
+/// Therefore, the solution to the problem is crunching our way through 26 layers of accreting a weighted map of button transition, from the previous layer into the next layer.
+/// Then we take the sum of all those transition weights, and multiply it by the input_code. sum all of those, and that's the final answer.
 fn handle_puzzle2(input: &str) -> usize {
+    // initialize inputs
     let inputs = parse(input);
     let input_codes = inputs
         .clone()
@@ -68,33 +90,46 @@ fn handle_puzzle2(input: &str) -> usize {
                 .unwrap()
         })
         .collect::<Vec<_>>();
-    let num = ClickMatrixv2::numpad();
-    let dpad = ClickMatrixv2::dpad();
 
-    let mut chain = Vec::from([&num]);
-    for i in 0..11 {
-        chain.push(&dpad);
+    // construct the 1numpad -> 25dpad chain
+    let num = ClickMatrixv2::numpad().transition_expansion_maps();
+    let dpad = ClickMatrixv2::dpad().transition_expansion_maps();
+    let mut expansion_chain = vec![&num];
+    for _ in 0..25 {
+        expansion_chain.push(&dpad);
     }
-    for i in 10..11 {
-        let chain = ClickChain::from(&chain);
 
-        println!("dpad count = {i}");
-        for (i, input) in inputs.iter().enumerate() {
-            let shortest = chain.find_shortest(input.as_str()).len();
-            println!("\t{input} len = {shortest}");
-            println!("\tcomplexity = {}", input_codes[i] * shortest);
+    let mut sum = 0;
+    for (input, input_code) in inputs.iter().zip(input_codes) {
+        // accreting weighted transitions
+        let mut trans_weights = HashMap::new();
+
+        let initial_transitions = ['A'].into_iter().chain(input.chars()).tuple_windows();
+        for next_transition in initial_transitions {
+            *trans_weights.entry(next_transition).or_default() += 1;
         }
-        // inputs
-        //     .iter()
-        //     .map(|input| chain.find_shortest(input.as_str()))
-        //     .clone()
-        //     .into_iter()
-        //     .zip(input_codes)
-        //     .map(|(path, code)| path.len() * code)
-        //     .sum()
+
+        // expand through the layers of the click chain, replacing the input_cost_map @ the end of each chain step
+        for trans_expans_map in expansion_chain.iter() {
+            let mut next_trans_weights = HashMap::new();
+
+            // build the next layer map, based on how any given transition results in next steps to take,
+            // and multiplied by the number of times the current layer performs that transition
+            for (next_trans, next_repeats) in trans_weights {
+                if let Some(default_trans_weights) = trans_expans_map.get(&next_trans) {
+                    for (parent_trans, base_weight) in default_trans_weights.iter() {
+                        *next_trans_weights.entry(*parent_trans).or_default() +=
+                            next_repeats * base_weight;
+                    }
+                }
+            }
+            trans_weights = next_trans_weights;
+        }
+        let input_len = trans_weights.values().sum::<usize>();
+        sum += input_len * input_code;
     }
 
-    0
+    sum
 }
 
 /// Allows one to query "from"/"to" for any two keys on any keypad,
@@ -200,6 +235,37 @@ impl ClickMatrixv2 {
         Self::from(vec![vec![' ', '^', 'A'], vec!['<', 'v', '>']], (0, 0))
     }
 
+    fn transition_expansion_maps(&self) -> HashMap<(char, char), HashMap<(char, char), usize>> {
+        let all_dirs = self.key.keys().collect::<Vec<_>>();
+        let mut out = HashMap::new();
+
+        for c in all_dirs.into_iter().combinations(2) {
+            let (from, to) = (**c.get(0).unwrap(), **c.get(1).unwrap());
+
+            let from_to_chars = self
+                .get(from, to)
+                .iter()
+                .min_by_key(|s| s.len())
+                .unwrap()
+                .chars();
+            let best = ['A']
+                .into_iter()
+                .chain(from_to_chars)
+                .tuple_windows()
+                .into_iter()
+                .fold(HashMap::<(char, char), usize>::new(), |mut acc, next| {
+                    *acc.entry(next).or_default() += 1;
+                    acc
+                });
+
+            out.insert((from, to), best);
+        }
+
+        out
+    }
+}
+
+impl ClickMatrixv2 {
     /// Look up the "ways" to get to `dest` from `src` for the given keypad
     pub fn get(&self, src: char, dest: char) -> &[String] {
         let ksrc = *self.key.get(&src).unwrap();
@@ -258,26 +324,6 @@ impl<'a> ClickChain<'a> {
     }
 }
 
-fn align_lines(mut lines: Vec<String>) -> String {
-    for i in (0..lines.len() - 1).rev() {
-        let (unaligned, base) = (&lines[i], &lines[i + 1]);
-        let mut realigned = String::new();
-        let mut unaligned = unaligned.chars();
-        let mut base = base.chars();
-        while let Some(c) = base.next() {
-            let next = if c == 'A' {
-                unaligned.next().unwrap()
-            } else {
-                ' '
-            };
-            realigned.push(next);
-        }
-        lines[i] = realigned;
-    }
-
-    lines.join("\n")
-}
-
 #[test]
 fn test_puzzle1() -> Result<(), Box<dyn std::error::Error>> {
     let input = r#"029A
@@ -293,9 +339,28 @@ fn test_puzzle1() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn test_puzzle2() -> Result<(), Box<dyn std::error::Error>> {
-    let input = r#""#;
+    let dpad = ClickMatrixv2::dpad();
 
-    assert_eq!(handle_puzzle2(input), todo!());
+    let DIRS = ['<', '^', '>', 'v', 'A'];
+    for c in DIRS.iter().combinations(2) {
+        let (from, to) = (**c.get(0).unwrap(), **c.get(1).unwrap());
+
+        let from_to_chars = dpad
+            .get(from, to)
+            .iter()
+            .min_by_key(|s| s.len())
+            .unwrap()
+            .chars();
+        let best = ['A']
+            .into_iter()
+            .chain(from_to_chars)
+            .tuple_windows()
+            .into_iter()
+            .fold(HashMap::<(char, char), usize>::new(), |mut acc, next| {
+                *acc.entry(next).or_default() += 1;
+                acc
+            });
+    }
 
     Ok(())
 }
