@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "dec_22"
 
 [[bin]]
-path = "dec_22.rs"
+path = "src/dec_22.rs"
 name = "dec_22"
 
 [[bin]]
