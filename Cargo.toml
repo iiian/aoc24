@@ -2,7 +2,11 @@
 name = "aoc24"
 version = "0.1.0"
 edition = "2021"
-default-run = "dec_23"
+default-run = "dec_24"
+
+[[bin]]
+path = "dec_24.rs"
+name = "dec_24"
 
 [[bin]]
 path = "src/dec_23.rs"
@@ -55,9 +59,11 @@ name = "dec_12"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+crossbeam-channel = { version = "0.5.14", features = ["std"] }
 itertools = "0.13.0"
 nalgebra = "0.33.2"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 rayon = "1.10.0"
 regex = "1.11.1"
+tokio = { version = "1.42.0", features = ["full"] }
