@@ -59,6 +59,7 @@ name = "dec_12"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bus = "2.4.1"
 crossbeam-channel = { version = "0.5.14", features = ["std"] }
 itertools = "0.13.0"
 nalgebra = "0.33.2"
