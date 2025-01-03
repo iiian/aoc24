@@ -61,6 +61,7 @@ name = "dec_12"
 [dependencies]
 bus = "2.4.1"
 crossbeam-channel = { version = "0.5.14", features = ["std"] }
+genawaiter = "0.99.1"
 itertools = "0.13.0"
 nalgebra = "0.33.2"
 num-bigint = "0.4.6"

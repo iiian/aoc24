@@ -2,6 +2,17 @@
 
 ## Neat discoveries!
 
+### Dec 24th:
+  #### Generators in Rust (not the unstable nightly stuff)
+  [genawaiter crate docs](https://docs.rs/genawaiter/latest/genawaiter/)
+  ```rust
+  let count_to_ten = gen!({
+    for n in 0..10 {
+        yield_!(n);
+    }
+  });
+  ```
+
 ### Dec 16th:
   #### Get a modulus that is guaranteed to be positive:
   ```rust

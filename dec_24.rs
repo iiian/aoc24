@@ -1,10 +1,9 @@
-use bus::{Bus, BusReader};
+mod circuit_sim;
+
+use circuit_sim::*;
+use itertools::Itertools;
 use regex::Regex;
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::mpsc,
-    thread,
-};
+use std::collections::{HashMap, HashSet};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::fs::read_to_string("./inputs/dec24.txt")?;
@@ -17,27 +16,204 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         now.elapsed().as_micros()
     );
 
-    // let now = std::time::Instant::now();
-    // let result = handle_puzzle2(input.as_str());
-    // println!(
-    //     "Puzzle 2: ans {:?}, ({} us)",
-    //     result,
-    //     now.elapsed().as_micros()
-    // );
+    let now = std::time::Instant::now();
+    let result = handle_puzzle2(input.as_str());
+    println!(
+        "Puzzle 2: ans {:?}, ({} us)",
+        result,
+        now.elapsed().as_micros()
+    );
 
     Ok(())
 }
 
-struct CircuitSpec<'a> {
+type Units = usize;
+fn handle_puzzle1(input: &str) -> Units {
+    let CircuitSpec { inputs, circuitry } = parse(input);
+    let mut sim = Sim::from(circuitry);
+
+    sim.run(&inputs)
+}
+
+fn get_gates<'a>(
+    origin: &'a str,
+    dest: &HashSet<&&'a str>,
+    circuitry: &HashMap<&'a str, (&'a str, &'a str, &'a str)>,
+    out: &mut HashSet<&'a str>,
+) -> bool {
+    if dest.contains(&origin) {
+        return true;
+    }
+    if let Some((x, y, _)) = circuitry.get(origin) {
+        let has_a = get_gates(x, dest, circuitry, out);
+        let has_b = get_gates(y, dest, circuitry, out);
+
+        if has_a || has_b {
+            out.insert(origin);
+            return true;
+        }
+    }
+
+    false
+}
+
+fn handle_puzzle2(input: &str) -> Units {
+    // I did some sleuthing with function `puzzle2_hunthotspots` (see circuit_sim.rs) and found that these indices tend
+    // to diverge from usize + usize functionality. I could be wrong.
+    let expected_failure_spots: [usize; 4] = [15, 21, 30, 34];
+
+    let CircuitSpec {
+        inputs,
+        mut circuitry,
+    } = parse(input);
+    let ikeys = inputs.keys().cloned().collect::<HashSet<_>>();
+    let ckeys = circuitry.keys().cloned().collect::<HashSet<_>>();
+    let test_cases = generate_test_cases(&inputs);
+
+    for index in expected_failure_spots {
+        let origin = format!("z{index}");
+        let origin = ckeys.get(origin.as_str()).unwrap();
+        // let destinations = ikeys
+        //     .iter()
+        //     .filter(|k| {
+        //         (k.starts_with('x') || k.starts_with('y'))
+        //             && k.ends_with(index.to_string().as_str())
+        //     })
+        //     .collect();
+        let destinations = (index - 2..=index + 1)
+            .flat_map(|i| {
+                [
+                    ikeys.get(format!("x{i}").as_str()),
+                    ikeys.get(format!("y{i}").as_str()),
+                ]
+            })
+            .filter_map(|o| o)
+            .collect::<HashSet<_>>();
+
+        // each index that causes divergence has a thin trace of gates that we could swap around.
+        // specifically, if we're talking about z15, then basically any gate that exists on the
+        // path from x14/x15 y14/y15 -> z15 could be the problem. So we want to try taking
+        // combinations of them, and swapping them around. This reduces the problem space
+        // drastically, if we can assume this system represents some full/half adder circuit.
+        let mut gates = HashSet::new();
+        get_gates(origin, &destinations, &circuitry, &mut gates);
+        gates.remove(origin);
+
+        // make sure that our change actually fixed a problem, else crash, Runtime error.
+        let mut fix = false;
+
+        'outer: for pair in gates.into_iter().combinations(2) {
+            // a candidate rewiring for fixing our issue
+            let mut cand = circuitry.clone();
+
+            let a = cand.get_mut(pair[0]).unwrap() as *mut (&str, &str, &str);
+            let b = cand.get_mut(pair[1]).unwrap() as *mut (&str, &str, &str);
+            unsafe {
+                std::ptr::swap(a, b);
+            }
+
+            let mut sim = Sim::from(cand.clone());
+
+            // now, for our new sim based on our rewired circuitry, check if it passes for all test
+            // cases.
+            for TestCase { inputs, x, y } in &test_cases {
+                let z_expected = x + y;
+                let z_actual = sim.run(inputs);
+
+                // the bit is verified corrected if zexp ^ zact == 0 @ index
+                if ((z_expected >> index) & 1) ^ ((z_actual >> index) & 1) == 1 {
+                    // this combination didn't resolve the problem.
+                    break 'outer;
+                }
+            }
+            circuitry = cand;
+            fix = true;
+        }
+
+        if !fix {
+            panic!("your search did not fix all the problems");
+        }
+    }
+
+    println!("I fixed all the bugs");
+
+    0
+}
+
+struct TestCase<'a> {
     inputs: HashMap<&'a str, bool>,
-    circuitry: HashMap<&'a str, (&'a str, &'a str, &'a str)>,
+    x: usize,
+    y: usize,
 }
 
-enum InputPair {
-    Partial(bool),
+fn generate_test_cases<'a>(inputs: &HashMap<&'a str, bool>) -> Vec<TestCase<'a>> {
+    let (mut x, mut y) = (true, true);
+    let mut all_inputs = vec![
+        inputs.clone(),
+        inputs.keys().map(|k| (*k, true)).collect::<HashMap<_, _>>(),
+        inputs
+            .keys()
+            .sorted_by_key(|k| *k)
+            .map(|k| {
+                let b = if k.starts_with('x') { &mut x } else { &mut y };
+                *b = !*b;
+                (*k, *b)
+            })
+            .collect::<HashMap<_, _>>(),
+    ];
+    let mut x = !x;
+    all_inputs.push(
+        inputs
+            .keys()
+            .sorted_by_key(|k| *k)
+            .map(|k| {
+                let b = if k.starts_with('x') { &mut x } else { &mut y };
+                *b = !*b;
+                (*k, *b)
+            })
+            .collect::<HashMap<_, _>>(),
+    );
+    let (mut x, mut y) = (!x, !y);
+    all_inputs.push(
+        inputs
+            .keys()
+            .sorted_by_key(|k| *k)
+            .map(|k| {
+                let b = if k.starts_with('x') { &mut x } else { &mut y };
+                *b = !*b;
+                (*k, *b)
+            })
+            .collect::<HashMap<_, _>>(),
+    );
+
+    all_inputs
+        .into_iter()
+        .map(|inputs| {
+            let mut x_expected = 0_usize;
+            let mut y_expected = 0_usize;
+
+            for (k, b) in &inputs {
+                let (tgt, pos) = k.split_at(1);
+                let tgt = match tgt {
+                    "x" => &mut x_expected,
+                    "y" => &mut y_expected,
+                    _ => unreachable!(),
+                };
+                let pos = pos.parse::<usize>().unwrap();
+                if *b {
+                    *tgt |= 1 << pos;
+                }
+            }
+            TestCase {
+                inputs,
+                x: x_expected,
+                y: y_expected,
+            }
+        })
+        .collect()
 }
 
-fn parse<'a>(input: &'a str) -> CircuitSpec<'a> {
+fn parse(input: &str) -> CircuitSpec {
     let (inputs_raw, circuitry_raw) = input.split_once("\n\n").unwrap();
 
     let mut inputs = HashMap::new();
@@ -61,108 +237,6 @@ fn parse<'a>(input: &'a str) -> CircuitSpec<'a> {
 
     CircuitSpec { inputs, circuitry }
 }
-
-type Units = usize;
-fn handle_puzzle1(input: &str) -> Units {
-    let CircuitSpec { inputs, circuitry } = parse(input);
-
-    let and = |a, b| a && b;
-    let or = |a, b| a || b;
-    let xor = |a: bool, b: bool| a ^ b;
-
-    let mut channels = HashMap::new();
-    let mut gates = vec![];
-
-    // fill out `channels` and `gates`, separating Buses from BusReaders, while
-    // persisting both of them for later
-    for z in circuitry.keys().filter(|k| k.starts_with('z')) {
-        resolve_circuitry(z, &circuitry, &mut channels, &mut gates);
-    }
-
-    // construct the final layer that accretes all z## outputs into a usize
-    let (zftx, zfrx) = mpsc::channel();
-    let mut handles = vec![];
-    let zrecv = channels
-        .iter_mut()
-        .filter(|(c, _)| c.starts_with('z'))
-        .map(|(zname, zbus)| (zname[1..].parse::<usize>().unwrap(), zbus.add_rx()))
-        .collect::<HashMap<_, _>>();
-    handles.push(thread::spawn(move || {
-        let mut z_final = 0_usize;
-        for (off, mut zrecv) in zrecv {
-            let b = zrecv.recv().unwrap();
-            if b {
-                z_final |= 1 << off;
-            }
-        }
-
-        zftx.send(z_final).unwrap();
-    }));
-
-    // construct a gang of threads to run the gates async
-    handles.extend(
-        gates
-            .into_iter()
-            .map(|Gate { mut x, mut y, g, z }| {
-                let mut z = channels.remove(z).unwrap();
-                let gate = match g {
-                    "OR" => or,
-                    "AND" => and,
-                    "XOR" => xor,
-                    _ => unreachable!(),
-                };
-                thread::spawn(move || {
-                    let x = x.recv().unwrap();
-                    let y = y.recv().unwrap();
-                    z.broadcast(gate(x, y));
-                })
-            })
-            .collect::<Vec<_>>(),
-    );
-
-    // kick off the system
-    for (name, value) in inputs {
-        channels.remove(name).unwrap().broadcast(value);
-    }
-
-    for handle in handles {
-        handle.join().unwrap();
-    }
-
-    zfrx.recv().unwrap()
-}
-
-struct Gate<'a> {
-    x: BusReader<bool>,
-    y: BusReader<bool>,
-    g: &'a str,
-    z: &'a str,
-}
-
-fn resolve_circuitry<'a>(
-    z: &'a str,
-    circuitry: &HashMap<&'a str, (&'a str, &'a str, &'a str)>,
-    channels: &mut HashMap<&'a str, Bus<bool>>,
-    gates: &mut Vec<Gate<'a>>,
-) {
-    if channels.contains_key(z) {
-        return;
-    }
-
-    channels.insert(z, Bus::new(64));
-
-    if let Some((x, y, g)) = circuitry.get(z) {
-        resolve_circuitry(&x, circuitry, channels, gates);
-        resolve_circuitry(&y, circuitry, channels, gates);
-        let x = channels.get_mut(x).unwrap().add_rx();
-        let y = channels.get_mut(y).unwrap().add_rx();
-        gates.push(Gate { x, y, g, z })
-    }
-}
-
-// fn handle_puzzle2(input: &str) -> Units {
-//     todo!()
-// }
 
 #[test]
 fn test_puzzle1() -> Result<(), Box<dyn std::error::Error>> {
