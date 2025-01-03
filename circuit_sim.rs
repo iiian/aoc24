@@ -3,6 +3,7 @@ use bus::BusReader;
 use std::collections::HashMap;
 use std::thread;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 pub(crate) struct CircuitSpec<'a> {
     pub(crate) inputs: HashMap<&'a str, bool>,
@@ -21,6 +22,8 @@ pub(crate) struct Gate<'a> {
     pub(crate) g: &'a str,
     pub(crate) z: &'a str,
 }
+
+static TIMEOUT: Duration = Duration::from_millis(1_000);
 
 impl<'a> Sim<'a> {
     pub fn resolve_circuitry(
@@ -77,8 +80,12 @@ impl<'a> Sim<'a> {
                     _ => unreachable!(),
                 };
                 thread::spawn(move || loop {
-                    let Ok(x) = x.recv() else { break };
-                    let Ok(y) = y.recv() else { break };
+                    let Ok(x) = x.recv_timeout(TIMEOUT) else {
+                        break;
+                    };
+                    let Ok(y) = y.recv_timeout(TIMEOUT) else {
+                        break;
+                    };
                     let Ok(()) = z.try_broadcast(gate(x, y)) else {
                         break;
                     };
@@ -93,20 +100,23 @@ impl<'a> Sim<'a> {
         }
     }
 
-    pub fn run(&mut self, inputs: &HashMap<&'a str, bool>) -> usize {
+    pub fn run(&mut self, inputs: &HashMap<&'a str, bool>) -> Option<usize> {
         for (name, value) in inputs {
             self.channels.get_mut(name).unwrap().broadcast(*value);
         }
 
         let mut z_final = 0_usize;
         for (off, zrecv) in &mut self.zrecv {
-            let b = zrecv.recv().unwrap();
-            if b {
-                z_final |= 1 << off;
+            if let Ok(b) = zrecv.recv_timeout(TIMEOUT) {
+                if b {
+                    z_final |= 1 << off;
+                }
+            } else {
+                return None;
             }
         }
 
-        z_final
+        Some(z_final)
     }
 }
 
@@ -119,72 +129,3 @@ impl<'a> Drop for Sim<'a> {
         }
     }
 }
-
-// fn puzzle2_hunthotspots(input: &str) {
-//     let CircuitSpec { inputs, circuitry } = todo!();
-//     let mut sim = Sim::from(circuitry);
-//     let (mut x, mut y) = (true, true);
-//     let mut all_inputs = vec![
-//         inputs.clone(),
-//         inputs.keys().map(|k| (*k, true)).collect::<HashMap<_, _>>(),
-//         inputs
-//             .keys()
-//             .sorted_by_key(|k| *k)
-//             .map(|k| {
-//                 let mut b = if k.starts_with('x') { &mut x } else { &mut y };
-//                 *b = !*b;
-//                 (*k, (*b).clone())
-//             })
-//             .collect::<HashMap<_, _>>(),
-//     ];
-//     let mut x = !x;
-//     all_inputs.push(
-//         inputs
-//             .keys()
-//             .sorted_by_key(|k| *k)
-//             .map(|k| {
-//                 let mut b = if k.starts_with('x') { &mut x } else { &mut y };
-//                 *b = !*b;
-//                 (*k, (*b).clone())
-//             })
-//             .collect::<HashMap<_, _>>(),
-//     );
-//     let (mut x, mut y) = (!x, !y);
-//     all_inputs.push(
-//         inputs
-//             .keys()
-//             .sorted_by_key(|k| *k)
-//             .map(|k| {
-//                 let mut b = if k.starts_with('x') { &mut x } else { &mut y };
-//                 *b = !*b;
-//                 (*k, (*b).clone())
-//             })
-//             .collect::<HashMap<_, _>>(),
-//     );
-//     for inputs in all_inputs {
-//         let mut x_expected = 0_usize;
-//         let mut y_expected = 0_usize;
-//
-//         for (k, b) in &inputs {
-//             let (tgt, pos) = k.split_at(1);
-//             let tgt = match tgt {
-//                 "x" => &mut x_expected,
-//                 "y" => &mut y_expected,
-//                 _ => unreachable!(),
-//             };
-//             let pos = pos.parse::<usize>().unwrap();
-//             if *b {
-//                 *tgt |= 1 << pos;
-//             }
-//         }
-//
-//         let z_expected = x_expected + y_expected;
-//         let z_actual = sim.run(&inputs);
-//         println!("{x_expected:064b} (x)");
-//         println!("{y_expected:064b} (+y)");
-//         println!("{z_expected:064b} (=expected)");
-//         println!("{z_actual:064b} (=actual)");
-//         println!("{:064b}", !(z_expected ^ z_actual),);
-//         println!();
-//     }
-// }

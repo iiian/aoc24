@@ -27,7 +27,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-type Units = usize;
+type Units = Option<usize>;
 fn handle_puzzle1(input: &str) -> Units {
     let CircuitSpec { inputs, circuitry } = parse(input);
     let mut sim = Sim::from(circuitry);
@@ -58,6 +58,64 @@ fn get_gates<'a>(
 }
 
 fn handle_puzzle2(input: &str) -> Units {
+    let CircuitSpec {
+        inputs,
+        mut circuitry,
+    } = parse(input);
+    let revcirc = circuitry.iter().fold(
+        HashMap::<&str, HashSet<(&str, &str)>>::new(),
+        |mut acc, (z, (x, y, g))| {
+            acc.entry(x).or_default().insert((g, z));
+            acc.entry(y).or_default().insert((g, z));
+            acc
+        },
+    );
+
+    let is_adder_circuit = |x: &str, y: &str, z: &str, carry: &mut Option<&str>| -> bool {
+        let Some(x_conn) = revcirc.get(&x) else {
+            return false;
+        };
+        let Some(y_conn) = revcirc.get(&y) else {
+            return false;
+        };
+        let a_conn = x_conn.intersection(y_conn);
+
+        let z = a_conn
+            .into_iter()
+            .filter(|(cg, cz)| *cg == "XOR")
+            .map(|(_, z)| z)
+            .collect::<Vec<_>>();
+
+        let Some((zx, zy, zg)) = circuitry.get(z) else {
+            return false;
+        };
+
+        if *zx != x || *zy != y {
+            return false;
+        }
+
+        true
+    };
+
+    let ikeys = inputs.keys().cloned().collect::<HashSet<_>>();
+    let ckeys = circuitry.keys().cloned().collect::<HashSet<_>>();
+    let mut carry = None;
+    for i in 0..44 {
+        let (x, y, z) = (
+            ikeys.get(format!("x{i}").as_str()).unwrap(),
+            ikeys.get(format!("y{i}").as_str()).unwrap(),
+            ckeys.get(format!("z{i}").as_str()).unwrap(),
+        );
+        if !is_adder_circuit(x, y, z, &mut carry) {
+            println!("Problem with {i}th adder circuit");
+        }
+    }
+    assert_eq!(carry, Some("z45"));
+
+    None
+}
+
+fn handle_puzzle2_paused(input: &str) -> Units {
     // I did some sleuthing with function `puzzle2_hunthotspots` (see circuit_sim.rs) and found that these indices tend
     // to diverge from usize + usize functionality. I could be wrong.
     let expected_failure_spots: [usize; 4] = [15, 21, 30, 34];
@@ -112,22 +170,25 @@ fn handle_puzzle2(input: &str) -> Units {
                 std::ptr::swap(a, b);
             }
 
-            let mut sim = Sim::from(cand.clone());
-
             // now, for our new sim based on our rewired circuitry, check if it passes for all test
             // cases.
             for TestCase { inputs, x, y } in &test_cases {
                 let z_expected = x + y;
+                let mut sim = Sim::from(cand.clone());
                 let z_actual = sim.run(inputs);
-
-                // the bit is verified corrected if zexp ^ zact == 0 @ index
-                if ((z_expected >> index) & 1) ^ ((z_actual >> index) & 1) == 1 {
-                    // this combination didn't resolve the problem.
+                if let Some(z_actual) = z_actual {
+                    // the bit is verified corrected if zexp ^ zact == 0 @ index
+                    if ((z_expected >> index) & 1) ^ ((z_actual >> index) & 1) == 1 {
+                        // this combination didn't resolve the problem.
+                        break 'outer;
+                    }
+                } else {
                     break 'outer;
                 }
             }
             circuitry = cand;
             fix = true;
+            println!("gate fixed")
         }
 
         if !fix {
@@ -137,7 +198,7 @@ fn handle_puzzle2(input: &str) -> Units {
 
     println!("I fixed all the bugs");
 
-    0
+    Some(0)
 }
 
 struct TestCase<'a> {
@@ -255,7 +316,7 @@ lbc AND abq -> z01
 x01 OR lbc -> z02
 "#;
 
-    assert_eq!(handle_puzzle1(input), 0b100_usize);
+    assert_eq!(handle_puzzle1(input), Some(0b100_usize));
 
     //     println!("Test #2");
 
