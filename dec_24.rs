@@ -3,7 +3,10 @@ mod circuit_sim;
 use circuit_sim::*;
 use itertools::Itertools;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::os_str::Display,
+};
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = std::fs::read_to_string("./inputs/dec24.txt")?;
@@ -57,62 +60,132 @@ fn get_gates<'a>(
     false
 }
 
+struct Adder<'a> {
+    x: &'a str,
+    y: &'a str,
+    /// equivalently, the second xor gate
+    z: &'a str,
+    cin: Option<&'a str>,
+    xori: Option<&'a str>,
+    andi: Option<&'a str>,
+    andc: Option<&'a str>,
+    orc: Option<&'a str>,
+}
+
+impl<'a> Adder<'a> {
+    pub fn new(x: &'a str, y: &'a str, z: &'a str) -> Self {
+        Self {
+            x,
+            y,
+            z,
+            cin: None,
+            xori: None,
+            andi: None,
+            andc: None,
+            orc: None,
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for Adder<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let presentation = vec![
+            format_args!("           {}         ", self.xori.unwrap_or("???")),
+            format_args!("X {}---►┌─────┐     ┌─────┐", self.x),
+            format_args!("         │ XOR ├──┬──┤ XOR ├──► Sum {}", self.z),
+            format_args!("Y {}---►└─────┘  │  └─────┘", self.y),
+            format_args!("                ┌─┘     ▲"),
+            format_args!("                │       │"),
+            format_args!("                │       │"),
+            format_args!("Cin {}---------┴-------┘", self.cin.unwrap_or("???")),
+            format_args!("      "),
+            format_args!("X {}---►┌─────┐", self.x),
+            format_args!("         │ AND ├──┐"),
+            format_args!("Y {}---►└─────┘  │    ┌─────┐", self.y),
+            format_args!(
+                "                  └────┤ OR  ├──► Cout {}",
+                self.orc.unwrap_or("???")
+            ),
+            format_args!("X {}---►┌─────┐  ┌────┤     │", self.x),
+            format_args!("         │ XOR ├──┤    └─────┘"),
+            format_args!("Y {}---►└─────┘  │         │ ", self.y),
+            format_args!("                ┌─┘         │ "),
+            format_args!("Cin {}---------┴──►┌─────┐ │ ", self.cin.unwrap_or("???")),
+            format_args!("                    │ AND ├─┘"),
+            format_args!("                    └─────┘"),
+        ];
+        f.write_fmt(format_args!(""))
+    }
+}
+
 fn handle_puzzle2(input: &str) -> Units {
     let CircuitSpec {
         inputs,
-        mut circuitry,
+        circuitry: circ,
     } = parse(input);
-    let revcirc = circuitry.iter().fold(
-        HashMap::<&str, HashSet<(&str, &str)>>::new(),
-        |mut acc, (z, (x, y, g))| {
-            acc.entry(x).or_default().insert((g, z));
-            acc.entry(y).or_default().insert((g, z));
-            acc
-        },
-    );
 
-    let is_adder_circuit = |x: &str, y: &str, z: &str, carry: &mut Option<&str>| -> bool {
-        let Some(x_conn) = revcirc.get(&x) else {
-            return false;
-        };
-        let Some(y_conn) = revcirc.get(&y) else {
-            return false;
-        };
-        let a_conn = x_conn.intersection(y_conn);
-
-        let z = a_conn
-            .into_iter()
-            .filter(|(cg, cz)| *cg == "XOR")
-            .map(|(_, z)| z)
-            .collect::<Vec<_>>();
-
-        let Some((zx, zy, zg)) = circuitry.get(z) else {
-            return false;
-        };
-
-        if *zx != x || *zy != y {
-            return false;
-        }
-
-        true
-    };
-
-    let ikeys = inputs.keys().cloned().collect::<HashSet<_>>();
-    let ckeys = circuitry.keys().cloned().collect::<HashSet<_>>();
+    let inv = circ
+        .iter()
+        .map(|(k, v)| (*v, *k))
+        .collect::<HashMap<_, _>>();
+    let mut adders = vec![];
     let mut carry = None;
-    for i in 0..44 {
+    let ikeys = inputs.keys().cloned().into_iter().collect::<HashSet<_>>();
+    let zkeys = circ.keys().cloned().into_iter().collect::<HashSet<_>>();
+    for i in 0..=44_usize {
         let (x, y, z) = (
-            ikeys.get(format!("x{i}").as_str()).unwrap(),
-            ikeys.get(format!("y{i}").as_str()).unwrap(),
-            ckeys.get(format!("z{i}").as_str()).unwrap(),
+            ikeys.get(format!("x{i:02}").as_str()).unwrap(),
+            ikeys.get(format!("y{i:02}").as_str()).unwrap(),
+            zkeys.get(format!("z{i:02}").as_str()).unwrap(),
         );
-        if !is_adder_circuit(x, y, z, &mut carry) {
-            println!("Problem with {i}th adder circuit");
+
+        let mut adder = Adder::new(x, y, z);
+        let (zx, zy, _) = circ.get(z).unwrap();
+        if i > 0 {
+            if let Some(ref mut c) = adder.cin {
+                let (_, _, gzx) = circ.get(zx).unwrap();
+                let (gzx, c) = if *gzx == "XOR" { (zx, zy) } else { (zy, zx) };
+                adder.cin = Some(c);
+                adder.xori = Some(gzx);
+                adder.andi = gate(&inv, x, y, "AND");
+                adder.andc = gate(&inv, c, gzx, "AND");
+                if let Some(ref andi) = adder.andi {
+                    if let Some(ref andc) = adder.andc {
+                        adder.orc = gate(&inv, andi, andc, "OR");
+                    }
+                }
+            } else {
+                println!("adder {i} has no carry in, this is likely a bug");
+            }
+        } else {
+            let c = gate(&inv, x, y, "AND");
+            adder.orc = c;
+        }
+        adders.push(adder);
+    }
+
+    for (a, b) in adders.iter().tuples() {
+        if a.orc
+            .map(|a| b.cin.map(|b| a != b).unwrap_or(false))
+            .unwrap_or(false)
+        {
+            println!("Problem with carry chain along {} to {}", a.z, b.z);
         }
     }
-    assert_eq!(carry, Some("z45"));
 
     None
+}
+
+fn gate<'a>(
+    circinv: &HashMap<(&'a str, &'a str, &'a str), &'a str>,
+    x: &&'a str,
+    y: &&'a str,
+    gate: &str,
+) -> Option<&'a str> {
+    circinv
+        .get(&(x, y, gate))
+        .or_else(|| circinv.get(&(y, x, gate)))
+        .map(|e| *e)
 }
 
 fn handle_puzzle2_paused(input: &str) -> Units {
