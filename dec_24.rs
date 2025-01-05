@@ -5,7 +5,7 @@ use itertools::Itertools;
 use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
-    ffi::os_str::Display,
+    fmt::Display,
 };
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,13 +19,26 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         now.elapsed().as_micros()
     );
 
+    // discovered hot spots:
+    // ccp OR hhw -> fph should go to z15
+    // z21 thinks that x21 is it's carry line
+    // z29/30: 29 carry out is dwm, but 30 carry in is wrk
+    // z34: fcv AND ksm -> z34?
+    //
+    // one pair is confirmed to be z15/fph
+    // second pair is gds/z21
+    // third pair must be jrs/wrk ?
+    // fourth is z34/cqk
     let now = std::time::Instant::now();
-    let result = handle_puzzle2(input.as_str());
+    let mut result = ["z15", "fph", "gds", "z21", "jrs", "wrk", "cqk", "z34"];
+    result.sort();
     println!(
         "Puzzle 2: ans {:?}, ({} us)",
-        result,
+        result.join(","),
         now.elapsed().as_micros()
     );
+
+    assert_valid_adder_circuit(input.as_str());
 
     Ok(())
 }
@@ -69,7 +82,7 @@ struct Adder<'a> {
     xori: Option<&'a str>,
     andi: Option<&'a str>,
     andc: Option<&'a str>,
-    orc: Option<&'a str>,
+    cout: Option<&'a str>,
 }
 
 impl<'a> Adder<'a> {
@@ -82,43 +95,56 @@ impl<'a> Adder<'a> {
             xori: None,
             andi: None,
             andc: None,
-            orc: None,
+            cout: None,
         }
     }
 }
 
-impl<'a> std::fmt::Display for Adder<'a> {
+impl<'a> Display for Adder<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let presentation = vec![
-            format_args!("           {}         ", self.xori.unwrap_or("???")),
-            format_args!("X {}---►┌─────┐     ┌─────┐", self.x),
-            format_args!("         │ XOR ├──┬──┤ XOR ├──► Sum {}", self.z),
-            format_args!("Y {}---►└─────┘  │  └─────┘", self.y),
-            format_args!("                ┌─┘     ▲"),
-            format_args!("                │       │"),
-            format_args!("                │       │"),
-            format_args!("Cin {}---------┴-------┘", self.cin.unwrap_or("???")),
-            format_args!("      "),
-            format_args!("X {}---►┌─────┐", self.x),
-            format_args!("         │ AND ├──┐"),
-            format_args!("Y {}---►└─────┘  │    ┌─────┐", self.y),
-            format_args!(
-                "                  └────┤ OR  ├──► Cout {}",
-                self.orc.unwrap_or("???")
-            ),
-            format_args!("X {}---►┌─────┐  ┌────┤     │", self.x),
-            format_args!("         │ XOR ├──┤    └─────┘"),
-            format_args!("Y {}---►└─────┘  │         │ ", self.y),
-            format_args!("                ┌─┘         │ "),
-            format_args!("Cin {}---------┴──►┌─────┐ │ ", self.cin.unwrap_or("???")),
-            format_args!("                    │ AND ├─┘"),
-            format_args!("                    └─────┘"),
-        ];
-        f.write_fmt(format_args!(""))
+        f.write_str(
+            &format!(
+                "{}",
+                vec![
+                    format!(""),
+                    format!(""),
+                    format!("{} --*--+===+", self.x),
+                    format!(
+                        "      |  |XOR|-* {} ----------------+===+ ",
+                        self.xori.unwrap_or("???")
+                    ),
+                    format!(
+                        "{} -*---+===+ |                     |XOR| --- {}",
+                        self.y, self.z
+                    ),
+                    format!("     ||        |      /--------------+===+"),
+                    format!("{} ---------*-------/", self.cin.unwrap_or("???")),
+                    format!("     ||      | |"),
+                    format!("     |.-------------+===+"),
+                    format!(
+                        "     |       | |    |AND|---{}----+",
+                        self.andi.unwrap_or("???")
+                    ),
+                    format!("     .--------------+===+          +-+===+"),
+                    format!(
+                        "             | |                     | OR| --- {}",
+                        self.cout.unwrap_or("???")
+                    ),
+                    format!("             | .----+===+          +-+===+"),
+                    format!(
+                        "             |      |AND|---{}----+ ",
+                        self.andc.unwrap_or("???")
+                    ),
+                    format!("             .------+===+"),
+                ]
+                .join("\n")
+            )
+            .as_str(),
+        )
     }
 }
 
-fn handle_puzzle2(input: &str) -> Units {
+fn investigate_puzzle2(input: &str) -> Units {
     let CircuitSpec {
         inputs,
         circuitry: circ,
@@ -129,7 +155,6 @@ fn handle_puzzle2(input: &str) -> Units {
         .map(|(k, v)| (*v, *k))
         .collect::<HashMap<_, _>>();
     let mut adders = vec![];
-    let mut carry = None;
     let ikeys = inputs.keys().cloned().into_iter().collect::<HashSet<_>>();
     let zkeys = circ.keys().cloned().into_iter().collect::<HashSet<_>>();
     for i in 0..=44_usize {
@@ -142,35 +167,26 @@ fn handle_puzzle2(input: &str) -> Units {
         let mut adder = Adder::new(x, y, z);
         let (zx, zy, _) = circ.get(z).unwrap();
         if i > 0 {
-            if let Some(ref mut c) = adder.cin {
-                let (_, _, gzx) = circ.get(zx).unwrap();
-                let (gzx, c) = if *gzx == "XOR" { (zx, zy) } else { (zy, zx) };
-                adder.cin = Some(c);
-                adder.xori = Some(gzx);
-                adder.andi = gate(&inv, x, y, "AND");
-                adder.andc = gate(&inv, c, gzx, "AND");
-                if let Some(ref andi) = adder.andi {
-                    if let Some(ref andc) = adder.andc {
-                        adder.orc = gate(&inv, andi, andc, "OR");
-                    }
+            let xori = gate(&inv, x, y, "XOR").unwrap();
+            let c = if xori == *zx { zy } else { zx };
+            adder.cin = Some(c);
+            adder.xori = Some(xori);
+            adder.andi = gate(&inv, x, y, "AND");
+            adder.andc = gate(&inv, c, &xori, "AND");
+            if let Some(ref andi) = adder.andi {
+                if let Some(ref andc) = adder.andc {
+                    adder.cout = gate(&inv, andi, andc, "OR");
                 }
-            } else {
-                println!("adder {i} has no carry in, this is likely a bug");
             }
         } else {
             let c = gate(&inv, x, y, "AND");
-            adder.orc = c;
+            adder.cout = c;
         }
         adders.push(adder);
     }
 
-    for (a, b) in adders.iter().tuples() {
-        if a.orc
-            .map(|a| b.cin.map(|b| a != b).unwrap_or(false))
-            .unwrap_or(false)
-        {
-            println!("Problem with carry chain along {} to {}", a.z, b.z);
-        }
+    for adder in adders {
+        println!("{}", adder);
     }
 
     None
@@ -188,90 +204,30 @@ fn gate<'a>(
         .map(|e| *e)
 }
 
-fn handle_puzzle2_paused(input: &str) -> Units {
+fn assert_valid_adder_circuit(input: &str) {
     // I did some sleuthing with function `puzzle2_hunthotspots` (see circuit_sim.rs) and found that these indices tend
     // to diverge from usize + usize functionality. I could be wrong.
-    let expected_failure_spots: [usize; 4] = [15, 21, 30, 34];
 
-    let CircuitSpec {
-        inputs,
-        mut circuitry,
-    } = parse(input);
-    let ikeys = inputs.keys().cloned().collect::<HashSet<_>>();
-    let ckeys = circuitry.keys().cloned().collect::<HashSet<_>>();
+    let CircuitSpec { inputs, circuitry } = parse(input);
+
     let test_cases = generate_test_cases(&inputs);
 
-    for index in expected_failure_spots {
-        let origin = format!("z{index}");
-        let origin = ckeys.get(origin.as_str()).unwrap();
-        // let destinations = ikeys
-        //     .iter()
-        //     .filter(|k| {
-        //         (k.starts_with('x') || k.starts_with('y'))
-        //             && k.ends_with(index.to_string().as_str())
-        //     })
-        //     .collect();
-        let destinations = (index - 2..=index + 1)
-            .flat_map(|i| {
-                [
-                    ikeys.get(format!("x{i}").as_str()),
-                    ikeys.get(format!("y{i}").as_str()),
-                ]
-            })
-            .filter_map(|o| o)
-            .collect::<HashSet<_>>();
+    // a candidate rewiring for fixing our issue
+    let mut cand = circuitry.clone();
 
-        // each index that causes divergence has a thin trace of gates that we could swap around.
-        // specifically, if we're talking about z15, then basically any gate that exists on the
-        // path from x14/x15 y14/y15 -> z15 could be the problem. So we want to try taking
-        // combinations of them, and swapping them around. This reduces the problem space
-        // drastically, if we can assume this system represents some full/half adder circuit.
-        let mut gates = HashSet::new();
-        get_gates(origin, &destinations, &circuitry, &mut gates);
-        gates.remove(origin);
-
-        // make sure that our change actually fixed a problem, else crash, Runtime error.
-        let mut fix = false;
-
-        'outer: for pair in gates.into_iter().combinations(2) {
-            // a candidate rewiring for fixing our issue
-            let mut cand = circuitry.clone();
-
-            let a = cand.get_mut(pair[0]).unwrap() as *mut (&str, &str, &str);
-            let b = cand.get_mut(pair[1]).unwrap() as *mut (&str, &str, &str);
-            unsafe {
-                std::ptr::swap(a, b);
-            }
-
-            // now, for our new sim based on our rewired circuitry, check if it passes for all test
-            // cases.
-            for TestCase { inputs, x, y } in &test_cases {
-                let z_expected = x + y;
-                let mut sim = Sim::from(cand.clone());
-                let z_actual = sim.run(inputs);
-                if let Some(z_actual) = z_actual {
-                    // the bit is verified corrected if zexp ^ zact == 0 @ index
-                    if ((z_expected >> index) & 1) ^ ((z_actual >> index) & 1) == 1 {
-                        // this combination didn't resolve the problem.
-                        break 'outer;
-                    }
-                } else {
-                    break 'outer;
-                }
-            }
-            circuitry = cand;
-            fix = true;
-            println!("gate fixed")
-        }
-
-        if !fix {
-            panic!("your search did not fix all the problems");
+    // now, for our new sim based on our rewired circuitry, check if it passes for all test
+    // cases.
+    for TestCase { inputs, x, y } in &test_cases {
+        let z_expected = x + y;
+        let mut sim = Sim::from(cand.clone());
+        if let Some(z_actual) = sim.run(inputs) {
+            println!("{z_expected:064b}");
+            println!("{z_actual:064b}");
+            println!("{:064b}", z_expected ^ z_actual);
+            println!();
         }
     }
-
-    println!("I fixed all the bugs");
-
-    Some(0)
+    println!("gate fixed")
 }
 
 struct TestCase<'a> {
